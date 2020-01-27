@@ -22,7 +22,13 @@ from hotspots.hs_io import HotspotWriter
 from hotspots.result import Extractor
 from hotspots.pdb_python_api import PDBResult
 
-subset = {
+technical_tests = [
+    '1hcl', # cdk2 apo used on Fig 1 from the JMedChem paper
+    '2vta', '1mtx', '1alu', # 2vta is cdk2 with a known hotspot; 1alu and 1mtx also run quickly
+]
+
+#subset = {'1j4i': 'd'}#, '1rnt': 'n', } # Two small (~100 residue) structures for testing
+'''subset = { # 65 structures (43 druggable, 22 less druggable) from Krasowski2011 (doi:10.1021/ci200266d)
     '1e9x': 'd', '1udt': 'd', '2bxr': 'd', '1r9o': 'd', '3d4s': 'd', '1k8q': 'd',
     '1xm6': 'd', '1rwq': 'd', '1yvf': 'd', '2hiw': 'd', '1gwr': 'd', '2g24': 'd',
     '1c14': 'd', '1ywn': 'd', '1hvy': 'd', '1f9g': 'n', '1ai2': 'n', '2ivu': 'd',
@@ -34,19 +40,17 @@ subset = {
     '1ywr': 'd', '2gyi': 'n', '1cg0': 'n', '5yas': 'n', '1icj': 'n', '1gkc': 'd',
     '1hqg': 'n', '1u30': 'd', '1nnc': 'n', '1c9y': 'n', '1j4i': 'd', '1qxo': 'n',
     '1o8b': 'n', '1nlj': 'n', '1rnt': 'n', '1d09': 'n', '1olq': 'n'
-}
-
-#subset = {'1j4i': 'd', '1rnt': 'n', } # Two small (~100 residue) structures for testing
+}'''
 
 rule all:
     """
         snakemake --cores 30 --dry-run
     """
     input:
-        #expand('pdb/{pdb_id}.pdb', pdb_id = subset.keys()),
-        #expand('pdb.prepare_protein/{pdb_id}.pdb', pdb_id = subset.keys()),
-        #expand('pdb.prepare_protein.hotspots/{pdb_id}/out.zip', pdb_id = subset.keys()),
-        expand('pdb.prepare_protein.hotspots.bcv/{pdb_id}/summary.tsv', pdb_id = subset.keys()),
+        #expand('pdb/{pdb_id}.pdb', pdb_id = technical_tests),
+        #expand('pdb.prepare_protein/{pdb_id}.pdb', pdb_id = technical_tests),
+        expand('pdb.prepare_protein.hotspots/{pdb_id}/out.zip', pdb_id = technical_tests),
+        #expand('pdb.prepare_protein.hotspots.bcv/{pdb_id}/summary.tsv', pdb_id = subset.keys()),
 
 rule pdb:
     """
@@ -72,12 +76,12 @@ rule prepare_protein:
         protein.remove_all_waters()
         protein.remove_unknown_atoms()
         protein.add_hydrogens()
-        ligands = protein.ligands
-        for l in ligands:
-            protein.remove_ligand(l.identifier)
+        for ligand in protein.ligands:
+            protein.remove_ligand(ligand.identifier)
+
         with EntryWriter(output.pdb) as writer:
             writer.write(protein)
-        #print(f"{len(protein.residues)} residues found in {input.pdb} after prepare_protein")
+        print(f"{len(protein.residues)} residues found in {input.pdb} after prepare_protein")
 
 rule hotspots:
     input:
@@ -89,8 +93,21 @@ rule hotspots:
     run:
         # 1) calculate Fragment Hotspot Result
         protein = Protein.from_file(input.pdb)
+
+        #cavity_ligand_id = 'tst'
+        #for ligand in protein.ligands:
+        #    print(cavity_ligand_id.lower(), ligand.identifier.lower())
+        #    if cavity_ligand_id.lower() in ligand.identifier.lower():
+        #        mol = ligand
+
+        #print('mol before ligand removal', mol)
+        #assert not(mol is None)
+        #for ligand in protein.ligands:
+        #    protein.remove_ligand(ligand.identifier)
+        #print('mol after ligand removal', mol)
+
         r = Runner()
-        result = r.from_protein(protein, buriedness_method='ghecom', nprocesses=3, probe_size=7)
+        result = r.from_protein(protein, buriedness_method='ghecom', nprocesses=3, probe_size=7)#, cavities=)
         output_dir = os.path.dirname(output.zip)
         with HotspotWriter(output_dir) as w:
             w.write(result)
