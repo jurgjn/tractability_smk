@@ -22,7 +22,6 @@ from hotspots.hs_io import HotspotWriter
 from hotspots.result import Extractor
 from hotspots.pdb_python_api import PDBResult
 
-'''
 subset = {
     '1e9x': 'd', '1udt': 'd', '2bxr': 'd', '1r9o': 'd', '3d4s': 'd', '1k8q': 'd',
     '1xm6': 'd', '1rwq': 'd', '1yvf': 'd', '2hiw': 'd', '1gwr': 'd', '2g24': 'd',
@@ -36,8 +35,8 @@ subset = {
     '1hqg': 'n', '1u30': 'd', '1nnc': 'n', '1c9y': 'n', '1j4i': 'd', '1qxo': 'n',
     '1o8b': 'n', '1nlj': 'n', '1rnt': 'n', '1d09': 'n', '1olq': 'n'
 }
-'''
-subset = {'1j4i': 'd', '1rnt': 'n', } # Two small (~100 residue) structures for testing
+
+#subset = {'1j4i': 'd', '1rnt': 'n', } # Two small (~100 residue) structures for testing
 
 rule all:
     """
@@ -46,7 +45,7 @@ rule all:
     input:
         #expand('pdb/{pdb_id}.pdb', pdb_id = subset.keys()),
         #expand('pdb.prepare_protein/{pdb_id}.pdb', pdb_id = subset.keys()),
-        #expand('pdb.prepare_protein.hotspots/{pdb_id}/', pdb_id = subset.keys()),
+        #expand('pdb.prepare_protein.hotspots/{pdb_id}/out.zip', pdb_id = subset.keys()),
         expand('pdb.prepare_protein.hotspots.bcv/{pdb_id}/summary.tsv', pdb_id = subset.keys()),
 
 rule pdb:
@@ -78,23 +77,22 @@ rule prepare_protein:
             protein.remove_ligand(l.identifier)
         with EntryWriter(output.pdb) as writer:
             writer.write(protein)
-
-        print(input.pdb, len(protein.residues))
-
+        #print(f"{len(protein.residues)} residues found in {input.pdb} after prepare_protein")
 
 rule hotspots:
     input:
         pdb = '{prev_steps}/{pdb_id}.pdb',
     output:
-        dir = directory('{prev_steps}.hotspots/{pdb_id}/'),
+        zip = '{prev_steps}.hotspots/{pdb_id}/out.zip',
+        pml = '{prev_steps}.hotspots/{pdb_id}/pymol_results_file.py',
     threads: 3 # Fragment hotspots maps is hard-coded to parallelise over three types of probes
     run:
         # 1) calculate Fragment Hotspot Result
         protein = Protein.from_file(input.pdb)
         r = Runner()
-        print('90:Runner():', r)
         result = r.from_protein(protein, buriedness_method='ghecom', nprocesses=3, probe_size=7)
-        with HotspotWriter(output.dir) as w:
+        output_dir = os.path.dirname(output.zip)
+        with HotspotWriter(output_dir) as w:
             w.write(result)
 
 rule bcv:
@@ -105,14 +103,33 @@ rule bcv:
         pml = '{prev_steps}.bcv/{pdb_id}/pymol_results_file.py',
         tsv = '{prev_steps}.bcv/{pdb_id}/summary.tsv',
     params:
-        volume = 125,
+        volume = 500,
+        volume_default = 125, # https://github.com/prcurran/hotspots/blob/8944c24d0e23fea78debae76f04238d4a2618c31/build/lib/hotspots/result.py#L1027
+        volume_failsafe = 5,
     run:
         # 1) Read Fragment Hotspot Result from disk
-        result = HotspotReader(input.zip).read()
-
         # 2) calculate Best Continuous Volume
-        extractor = Extractor(result)
-        bcv_result = extractor.extract_volume(volume=params.volume)
+        try:
+            result = HotspotReader(input.zip).read()
+            extractor = Extractor(result)
+            bcv_result = extractor.extract_volume(volume=params.volume)
+            volume_out = params.volume
+
+        except AssertionError:
+            try:
+                print(f"bcv with volume={params.volume} failed, re-running with volume={params.volume_default}")
+                result_default = HotspotReader(input.zip).read()
+                extractor_default = Extractor(result_default)
+                bcv_result = extractor_default.extract_volume(volume=params.volume_default)
+                volume_out = params.volume_default
+
+            except AssertionError:
+                print(f"bcv with volume={params.volume_default} failed, re-running with volume={params.volume_failsafe}")
+                result_failsafe = HotspotReader(input.zip).read()
+                extractor_failsafe = Extractor(result_failsafe)
+                bcv_result = extractor_failsafe.extract_volume(volume=params.volume_failsafe)
+                volume_out = params.volume_failsafe
+
         with HotspotWriter(os.path.dirname(output.zip)) as w:
             w.write(bcv_result)
 
@@ -127,5 +144,6 @@ rule bcv:
             'pdb': [wildcards.pdb_id] * len(values),
             'median': [median] * len(values),
             'tractability': [subset[wildcards.pdb_id]] * len(values),
+            'volume': [volume_out] * len(values)
         })
-        results_table.to_csv(output.tsv, sep='\t')
+        results_table.to_csv(output.tsv, sep='\t', index=False)
