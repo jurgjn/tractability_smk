@@ -23,8 +23,10 @@ from hotspots.result import Extractor
 from hotspots.pdb_python_api import PDBResult
 
 technical_tests = [
-    '1hcl', # cdk2 apo used on Fig 1 from the JMedChem paper
-    '2vta', '1mtx', '1alu', # 2vta is cdk2 with a known hotspot; 1alu and 1mtx also run quickly
+    #'1hcl', # cdk2 apo used on Fig 1 from the JMedChem paper
+    #'2vta', # 2vta is cdk2 with a known hotspot
+    #'1mtx', #'1alu', # 1alu and 1mtx also run quickly
+    '3cqw', # AKT1 -- API manuscript, Fig 2
 ]
 
 #subset = {'1j4i': 'd'}#, '1rnt': 'n', } # Two small (~100 residue) structures for testing
